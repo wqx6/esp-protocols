@@ -857,6 +857,10 @@ static void mdns_parse_packet(mdns_rx_packet_t *packet)
 
             if (type == MDNS_TYPE_PTR) {
                 mdns_browse_t *browse_for_ptr = mdns_priv_browse_find_ptr(name);
+                char ptr_subtype[MDNS_NAME_BUF_LEN] = { 0 };
+                if (name->sub) {
+                    strlcpy(ptr_subtype, name->host, sizeof(ptr_subtype));
+                }
                 size_t rdata_bound = (size_t)(data_ptr + data_len - data);
                 if (!mdns_utils_parse_fqdn(data, data_ptr, name, rdata_bound)) {
                     continue;//error
@@ -868,10 +872,10 @@ static void mdns_parse_packet(mdns_rx_packet_t *packet)
                         goto clear_rx_packet;
                     }
                     mdns_priv_browse_result_add_ptr(browse_for_ptr, name->host, browse_for_ptr->service,
-                                                    browse_for_ptr->proto, packet->tcpip_if, packet->ip_protocol,
-                                                    ttl, out_sync_browse);
+                                                    browse_for_ptr->proto, ptr_subtype, packet->tcpip_if,
+                                                    packet->ip_protocol, ttl, out_sync_browse);
                 } else if (search_result) {
-                    mdns_priv_query_result_add_ptr(search_result, name->host, name->service, name->proto,
+                    mdns_priv_query_result_add_ptr(search_result, name->host, name->service, name->proto, ptr_subtype,
                                                    packet->tcpip_if, packet->ip_protocol, ttl);
                 } else if ((discovery || ours) && !name->sub && is_ours(name)) {
                     if (name->host[0]) {
@@ -942,7 +946,7 @@ static void mdns_parse_packet(mdns_rx_packet_t *packet)
                         result = result->next;
                     }
                     if (!result) {
-                        result = mdns_priv_query_result_add_ptr(search_result, name->host, name->service, name->proto,
+                        result = mdns_priv_query_result_add_ptr(search_result, name->host, name->service, name->proto, NULL,
                                                                 packet->tcpip_if, packet->ip_protocol, ttl);
                         if (!result) {
                             continue;
@@ -1064,7 +1068,7 @@ static void mdns_parse_packet(mdns_rx_packet_t *packet)
                         }
                         if (!result) {
                             result = mdns_priv_query_result_add_ptr(search_result, name->host, name->service,
-                                                                    name->proto,
+                                                                    name->proto, NULL,
                                                                     packet->tcpip_if, packet->ip_protocol, ttl);
                             if (!result) {
                                 continue;

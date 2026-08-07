@@ -27,6 +27,9 @@ static void mdns_print_results(mdns_result_t *results)
         if (r->instance_name) {
             printf("  PTR : %s\n", r->instance_name);
         }
+        for (size_t s = 0; s < r->subtype_count; s++) {
+            printf("  SUB : %s\n", r->subtypes[s].subtype);
+        }
         if (r->hostname) {
             printf("  SRV : %s.local:%u\n", r->hostname, r->port);
         }

@@ -36,6 +36,18 @@ void mdns_priv_search_once_free(mdns_search_once_t *search);
 void mdns_priv_query_results_free(mdns_result_t *results);
 
 /**
+ * @brief Add a unique subtype to a result
+ */
+esp_err_t mdns_priv_result_add_subtype(mdns_result_t *result, const char *subtype);
+
+/**
+ * @brief Remove a subtype from a result
+ *
+ * @return true when a subtype was removed
+ */
+bool mdns_priv_result_remove_subtype(mdns_result_t *result, const char *subtype);
+
+/**
  * @brief Complete the query if max results reached
  * @note Called from the packet parser
  */
@@ -83,8 +95,8 @@ void mdns_priv_query_result_add_srv(mdns_search_once_t *search, const char *host
  * @note Called from the packet parser (mdns_receive.c)
  */
 mdns_result_t *mdns_priv_query_result_add_ptr(mdns_search_once_t *search, const char *instance,
-                                              const char *service_type, const char *proto, mdns_if_t tcpip_if,
-                                              mdns_ip_protocol_t ip_protocol, uint32_t ttl);
+                                              const char *service_type, const char *proto, const char *subtype,
+                                              mdns_if_t tcpip_if, mdns_ip_protocol_t ip_protocol, uint32_t ttl);
 
 /**
  * @brief Perform action from mdns service queue

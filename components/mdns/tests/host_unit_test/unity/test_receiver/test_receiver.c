@@ -10,6 +10,8 @@
 #include "mock_mdns_pcb.h"
 #include "mock_mdns_send.h"
 #include "mdns_private.h"
+#include "mdns_browser.h"
+#include "mdns_querier.h"
 
 static void test_mdns_hostname_queries(void)
 {
@@ -82,6 +84,110 @@ static void test_mdns_reject_short_packet(void)
     }
 }
 
+static void test_query_ptr_result_keeps_multiple_subtypes(void)
+{
+    mdns_search_once_t search = { 0 };
+    search.max_results = 1;
+
+    mdns_result_t *result = mdns_priv_query_result_add_ptr(&search, "printer", "_ipp", "_tcp", "_color",
+                                                           0, MDNS_IP_PROTOCOL_V4, 120);
+    mdns_priv_query_result_add_ptr(&search, "printer", "_ipp", "_tcp", "_duplex",
+                                   0, MDNS_IP_PROTOCOL_V4, 120);
+    mdns_priv_query_result_add_ptr(&search, "printer", "_ipp", "_tcp", "_color",
+                                   0, MDNS_IP_PROTOCOL_V4, 120);
+
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_EQUAL_UINT32(2, result->subtype_count);
+    TEST_ASSERT_EQUAL_STRING("_color", result->subtypes[0].subtype);
+    TEST_ASSERT_EQUAL_STRING("_duplex", result->subtypes[1].subtype);
+    mdns_priv_query_results_free(search.result);
+}
+
+static bool result_has_subtype(const mdns_result_t *result, const char *subtype)
+{
+    for (size_t i = 0; i < result->subtype_count; i++) {
+        if (strcmp(result->subtypes[i].subtype, subtype) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void test_query_subtype_goodbye_removes_subtype(void)
+{
+    mdns_search_once_t search = { 0 };
+    search.max_results = 1;
+
+    mdns_result_t *result = mdns_priv_query_result_add_ptr(&search, "printer", "_ipp", "_tcp", "_color",
+                                                           0, MDNS_IP_PROTOCOL_V4, 120);
+    mdns_priv_query_result_add_ptr(&search, "printer", "_ipp", "_tcp", "_duplex",
+                                   0, MDNS_IP_PROTOCOL_V4, 120);
+    mdns_priv_query_result_add_ptr(&search, "printer", "_ipp", "_tcp", "_color",
+                                   0, MDNS_IP_PROTOCOL_V4, 0);
+
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_EQUAL_UINT32(120, result->ttl);
+    TEST_ASSERT_EQUAL_UINT32(1, result->subtype_count);
+    TEST_ASSERT_EQUAL_STRING("_duplex", result->subtypes[0].subtype);
+    mdns_priv_query_results_free(search.result);
+}
+
+static void test_browse_subtype_goodbye_keeps_service_result(void)
+{
+    mdns_browse_t browse = { 0 };
+    mdns_browse_sync_t *sync = mdns_priv_browse_ensure_sync(&browse, NULL);
+    TEST_ASSERT_NOT_NULL(sync);
+
+    mdns_priv_browse_result_add_ptr(&browse, "printer", "_ipp", "_tcp", NULL,
+                                    0, MDNS_IP_PROTOCOL_V4, 120, sync);
+    mdns_priv_browse_result_add_ptr(&browse, "printer", "_ipp", "_tcp", "_color",
+                                    0, MDNS_IP_PROTOCOL_V4, 120, sync);
+    mdns_priv_browse_sync_free(sync);
+
+    sync = mdns_priv_browse_ensure_sync(&browse, NULL);
+    TEST_ASSERT_NOT_NULL(sync);
+    mdns_priv_browse_result_add_ptr(&browse, "printer", "_ipp", "_tcp", "_color",
+                                    0, MDNS_IP_PROTOCOL_V4, 0, sync);
+
+    TEST_ASSERT_NOT_NULL(browse.result);
+    TEST_ASSERT_EQUAL_UINT32(120, browse.result->ttl);
+    TEST_ASSERT_EQUAL_UINT32(0, browse.result->subtype_count);
+    TEST_ASSERT_EQUAL_PTR(browse.result, sync->sync_result->result);
+    mdns_priv_browse_sync_free(sync);
+    mdns_priv_query_results_free(browse.result);
+}
+
+static void test_service_lookups_include_multiple_subtypes(void)
+{
+    mdns_result_t *result = NULL;
+
+    TEST_ASSERT_EQUAL(ESP_OK, mdns_service_add("self-lookup", "_lookup", "_tcp", 80, NULL, 0));
+    TEST_ASSERT_EQUAL(ESP_OK, mdns_service_subtype_add_for_host("self-lookup", "_lookup", "_tcp", "test",
+                                                                "_self-one"));
+    TEST_ASSERT_EQUAL(ESP_OK, mdns_service_subtype_add_for_host("self-lookup", "_lookup", "_tcp", "test",
+                                                                "_self-two"));
+    TEST_ASSERT_EQUAL(ESP_OK, mdns_lookup_selfhosted_service("self-lookup", "_lookup", "_tcp", 1, &result));
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_EQUAL_UINT32(2, result->subtype_count);
+    TEST_ASSERT_TRUE(result_has_subtype(result, "_self-one"));
+    TEST_ASSERT_TRUE(result_has_subtype(result, "_self-two"));
+    mdns_query_results_free(result);
+
+    result = NULL;
+    TEST_ASSERT_EQUAL(ESP_OK, mdns_service_add_for_host("delegated-lookup", "_lookup", "_tcp", "test4", 80,
+                                                        NULL, 0));
+    TEST_ASSERT_EQUAL(ESP_OK, mdns_service_subtype_add_for_host("delegated-lookup", "_lookup", "_tcp", "test4",
+                                                                "_delegated-one"));
+    TEST_ASSERT_EQUAL(ESP_OK, mdns_service_subtype_add_for_host("delegated-lookup", "_lookup", "_tcp", "test4",
+                                                                "_delegated-two"));
+    TEST_ASSERT_EQUAL(ESP_OK, mdns_lookup_delegated_service("delegated-lookup", "_lookup", "_tcp", 1, &result));
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_EQUAL_UINT32(2, result->subtype_count);
+    TEST_ASSERT_TRUE(result_has_subtype(result, "_delegated-one"));
+    TEST_ASSERT_TRUE(result_has_subtype(result, "_delegated-two"));
+    mdns_query_results_free(result);
+}
+
 static void mdns_priv_create_answer_from_parsed_packet_Callback(mdns_parsed_packet_t* parsed_packet, int cmock_num_calls)
 {
     printf("callback\n");
@@ -111,6 +217,14 @@ void run_unity_tests(void)
     RUN_TEST(test_mdns_with_answers);
 
     RUN_TEST(test_mdns_reject_short_packet);
+
+    RUN_TEST(test_query_ptr_result_keeps_multiple_subtypes);
+
+    RUN_TEST(test_query_subtype_goodbye_removes_subtype);
+
+    RUN_TEST(test_browse_subtype_goodbye_keeps_service_result);
+
+    RUN_TEST(test_service_lookups_include_multiple_subtypes);
 
     UNITY_END();
 }

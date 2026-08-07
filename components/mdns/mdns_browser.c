@@ -316,8 +316,8 @@ void mdns_priv_browse_apply_staged_ips(mdns_browse_t *browse, mdns_browse_staged
 }
 
 void mdns_priv_browse_result_add_ptr(mdns_browse_t *browse, const char *instance, const char *service, const char *proto,
-                                     mdns_if_t tcpip_if, mdns_ip_protocol_t ip_protocol, uint32_t ttl,
-                                     mdns_browse_sync_t *out_sync_browse)
+                                     const char *subtype, mdns_if_t tcpip_if, mdns_ip_protocol_t ip_protocol,
+                                     uint32_t ttl, mdns_browse_sync_t *out_sync_browse)
 {
     if (!browse || !out_sync_browse || out_sync_browse->browse != browse
             || mdns_utils_str_null_or_empty(instance) || mdns_utils_str_null_or_empty(service)
@@ -330,7 +330,18 @@ void mdns_priv_browse_result_add_ptr(mdns_browse_t *browse, const char *instance
                 !mdns_utils_str_null_or_empty(r->instance_name) && !strcasecmp(instance, r->instance_name) &&
                 !mdns_utils_str_null_or_empty(r->service_type) && !strcasecmp(service, r->service_type) &&
                 !mdns_utils_str_null_or_empty(r->proto) && !strcasecmp(proto, r->proto)) {
-            if (r->ttl != ttl) {
+            bool should_update = false;
+            if (!mdns_utils_str_null_or_empty(subtype) && ttl == 0) {
+                should_update = mdns_priv_result_remove_subtype(r, subtype);
+            } else {
+                size_t previous_subtype_count = r->subtype_count;
+                if (mdns_priv_result_add_subtype(r, subtype) != ESP_OK) {
+                    HOOK_MALLOC_FAILED;
+                } else if (r->subtype_count != previous_subtype_count) {
+                    should_update = true;
+                }
+            }
+            if (mdns_utils_str_null_or_empty(subtype) && r->ttl != ttl) {
                 uint32_t previous_ttl = r->ttl;
                 if (r->ttl == 0) {
                     r->ttl = ttl;
@@ -338,12 +349,19 @@ void mdns_priv_browse_result_add_ptr(mdns_browse_t *browse, const char *instance
                     mdns_priv_query_update_result_ttl(r, ttl);
                 }
                 if (previous_ttl != r->ttl) {
-                    add_browse_result(out_sync_browse, r);
+                    should_update = true;
                 }
+            }
+            if (should_update) {
+                add_browse_result(out_sync_browse, r);
             }
             return;
         }
         r = r->next;
+    }
+
+    if (!mdns_utils_str_null_or_empty(subtype) && ttl == 0) {
+        return;
     }
 
     r = (mdns_result_t *)mdns_mem_malloc(sizeof(mdns_result_t));
@@ -355,11 +373,16 @@ void mdns_priv_browse_result_add_ptr(mdns_browse_t *browse, const char *instance
     r->instance_name = mdns_mem_strdup(instance);
     r->service_type = mdns_mem_strdup(service);
     r->proto = mdns_mem_strdup(proto);
-    if (!r->instance_name || !r->service_type || !r->proto) {
+    if (!r->instance_name || !r->service_type || !r->proto ||
+            mdns_priv_result_add_subtype(r, subtype) != ESP_OK) {
         HOOK_MALLOC_FAILED;
         mdns_mem_free(r->instance_name);
         mdns_mem_free(r->service_type);
         mdns_mem_free(r->proto);
+        for (size_t i = 0; i < r->subtype_count; i++) {
+            mdns_mem_free((char *)r->subtypes[i].subtype);
+        }
+        mdns_mem_free(r->subtypes);
         mdns_mem_free(r);
         return;
     }

@@ -81,8 +81,8 @@ void mdns_priv_browse_staged_ip_free(mdns_browse_staged_ip_t *staged);
  * @brief Add a PTR record to the browse result (including TTL=0 removal)
  */
 void mdns_priv_browse_result_add_ptr(mdns_browse_t *browse, const char *instance, const char *service, const char *proto,
-                                     mdns_if_t tcpip_if, mdns_ip_protocol_t ip_protocol, uint32_t ttl,
-                                     mdns_browse_sync_t *out_sync_browse);
+                                     const char *subtype, mdns_if_t tcpip_if, mdns_ip_protocol_t ip_protocol,
+                                     uint32_t ttl, mdns_browse_sync_t *out_sync_browse);
 
 /**
  * @brief Send out all browse queries

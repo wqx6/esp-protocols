@@ -394,6 +394,9 @@ static void dbg_printf_result(mdns_result_t *r_t)
     dbg_printf("result instance_name: %s\n", mdns_utils_str_null_or_empty(r_t->instance_name) ? "NULL" : r_t->instance_name);
     dbg_printf("result service_type: %s\n", mdns_utils_str_null_or_empty(r_t->service_type) ? "NULL" : r_t->service_type);
     dbg_printf("result proto: %s\n", mdns_utils_str_null_or_empty(r_t->proto) ? "NULL" : r_t->proto);
+    for (size_t i = 0; i < r_t->subtype_count; i++) {
+        dbg_printf("result subtype%zu: %s\n", i, r_t->subtypes[i].subtype);
+    }
     dbg_printf("result port: %d\n", r_t->port);
     dbg_printf("result ttl: %" PRIu32 "\n", r_t->ttl);
     for (int i = 0; i < r_t->txt_count; i++) {

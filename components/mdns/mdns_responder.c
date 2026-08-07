@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -969,6 +969,7 @@ static mdns_result_t *lookup_service(const char *instance, const char *service, 
                     HOOK_MALLOC_FAILED;
                     goto handle_error;
                 }
+                memset(item, 0, sizeof(mdns_result_t));
                 item->next = results;
                 results = item;
                 item->esp_netif = NULL;
@@ -1000,6 +1001,12 @@ static mdns_result_t *lookup_service(const char *instance, const char *service, 
                 }
                 item->port = srv->port;
                 item->txt = copy_txt_items(srv->txt, &(item->txt_value_len), &(item->txt_count));
+                for (mdns_subtype_t *subtype = srv->subtype; subtype; subtype = subtype->next) {
+                    if (mdns_priv_result_add_subtype(item, subtype->subtype) != ESP_OK) {
+                        HOOK_MALLOC_FAILED;
+                        goto handle_error;
+                    }
+                }
                 // We should not append addresses for selfhost lookup result as we don't know which interface's address to append.
                 if (selfhost) {
                     item->addr = NULL;

@@ -89,7 +89,7 @@ typedef enum {
 
 /**
  * @brief   mDNS basic subtype item structure
- *          Used in mdns_service_subtype_xxx() APIs
+ *          Used in mdns_service_subtype_xxx() APIs and query results
  */
 typedef struct {
     const char *subtype;                        /*!< subtype name */
@@ -124,7 +124,7 @@ typedef struct mdns_result_s {
     // PTR
     char *instance_name;                    /*!< instance name */
     char *service_type;                     /*!< service type */
-    char *proto;                            /*!< srevice protocol */
+    char *proto;                            /*!< service protocol */
     // SRV
     char *hostname;                         /*!< hostname */
     uint16_t port;                          /*!< service port */
@@ -134,6 +134,9 @@ typedef struct mdns_result_s {
     size_t txt_count;                       /*!< number of txt items */
     // A and AAAA
     mdns_ip_addr_t *addr;                   /*!< linked list of IP addresses found */
+    // PTR subtypes
+    mdns_subtype_item_t *subtypes;          /*!< array of unique service subtypes observed in PTR owners */
+    size_t subtype_count;                   /*!< number of items in subtypes */
 } mdns_result_t;
 
 typedef void (*mdns_query_notify_t)(mdns_search_once_t *search);

@@ -22,6 +22,66 @@ static mdns_search_once_t *s_search_once;
 static esp_err_t send_search_action(mdns_action_type_t type, mdns_search_once_t *search);
 static void search_free(mdns_search_once_t *search);
 
+esp_err_t mdns_priv_result_add_subtype(mdns_result_t *result, const char *subtype)
+{
+    if (!result) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (mdns_utils_str_null_or_empty(subtype)) {
+        return ESP_OK;
+    }
+
+    for (size_t i = 0; i < result->subtype_count; i++) {
+        if (!strcasecmp(result->subtypes[i].subtype, subtype)) {
+            return ESP_OK;
+        }
+    }
+
+    char *subtype_copy = mdns_mem_strdup(subtype);
+    if (!subtype_copy) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t new_count = result->subtype_count + 1;
+    mdns_subtype_item_t *subtypes = mdns_mem_malloc(new_count * sizeof(mdns_subtype_item_t));
+    if (!subtypes) {
+        mdns_mem_free(subtype_copy);
+        return ESP_ERR_NO_MEM;
+    }
+    if (result->subtype_count) {
+        memcpy(subtypes, result->subtypes, result->subtype_count * sizeof(mdns_subtype_item_t));
+    }
+    subtypes[result->subtype_count].subtype = subtype_copy;
+    mdns_mem_free(result->subtypes);
+    result->subtypes = subtypes;
+    result->subtype_count = new_count;
+    return ESP_OK;
+}
+
+bool mdns_priv_result_remove_subtype(mdns_result_t *result, const char *subtype)
+{
+    if (!result || mdns_utils_str_null_or_empty(subtype)) {
+        return false;
+    }
+
+    for (size_t i = 0; i < result->subtype_count; i++) {
+        if (!strcasecmp(result->subtypes[i].subtype, subtype)) {
+            mdns_mem_free((char *)result->subtypes[i].subtype);
+            result->subtype_count--;
+            if (i < result->subtype_count) {
+                memmove(&result->subtypes[i], &result->subtypes[i + 1],
+                        (result->subtype_count - i) * sizeof(mdns_subtype_item_t));
+            }
+            if (result->subtype_count == 0) {
+                mdns_mem_free(result->subtypes);
+                result->subtypes = NULL;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 void mdns_priv_query_results_free(mdns_result_t *results)
 {
     mdns_result_t *r;
@@ -34,6 +94,10 @@ void mdns_priv_query_results_free(mdns_result_t *results)
         mdns_mem_free((char *)(r->instance_name));
         mdns_mem_free((char *)(r->service_type));
         mdns_mem_free((char *)(r->proto));
+        for (size_t i = 0; i < r->subtype_count; i++) {
+            mdns_mem_free((char *)r->subtypes[i].subtype);
+        }
+        mdns_mem_free(r->subtypes);
 
         for (size_t i = 0; i < r->txt_count; i++) {
             mdns_mem_free((char *)(r->txt[i].key));
@@ -718,16 +782,26 @@ void mdns_priv_query_result_add_srv(mdns_search_once_t *search, const char *host
  * @brief  Called from parser to add PTR data to search result
  */
 mdns_result_t *mdns_priv_query_result_add_ptr(mdns_search_once_t *search, const char *instance,
-                                              const char *service_type, const char *proto, mdns_if_t tcpip_if,
-                                              mdns_ip_protocol_t ip_protocol, uint32_t ttl)
+                                              const char *service_type, const char *proto, const char *subtype,
+                                              mdns_if_t tcpip_if, mdns_ip_protocol_t ip_protocol, uint32_t ttl)
 {
     mdns_result_t *r = search->result;
     while (r) {
         if (r->esp_netif == mdns_priv_get_esp_netif(tcpip_if) && r->ip_protocol == ip_protocol && !mdns_utils_str_null_or_empty(r->instance_name) && !strcasecmp(instance, r->instance_name)) {
-            mdns_priv_query_update_result_ttl(r, ttl);
+            if (!mdns_utils_str_null_or_empty(subtype) && ttl == 0) {
+                mdns_priv_result_remove_subtype(r, subtype);
+            } else {
+                if (mdns_priv_result_add_subtype(r, subtype) != ESP_OK) {
+                    HOOK_MALLOC_FAILED;
+                }
+                mdns_priv_query_update_result_ttl(r, ttl);
+            }
             return r;
         }
         r = r->next;
+    }
+    if (!mdns_utils_str_null_or_empty(subtype) && ttl == 0) {
+        return NULL;
     }
     if (!search->max_results || search->num_results < search->max_results) {
         r = (mdns_result_t *)mdns_mem_malloc(sizeof(mdns_result_t));
@@ -740,7 +814,16 @@ mdns_result_t *mdns_priv_query_result_add_ptr(mdns_search_once_t *search, const 
         r->instance_name = mdns_mem_strdup(instance);
         r->service_type = mdns_mem_strdup(service_type);
         r->proto = mdns_mem_strdup(proto);
-        if (!r->instance_name) {
+        if (!r->instance_name || !r->service_type || !r->proto ||
+                mdns_priv_result_add_subtype(r, subtype) != ESP_OK) {
+            HOOK_MALLOC_FAILED;
+            mdns_mem_free(r->instance_name);
+            mdns_mem_free(r->service_type);
+            mdns_mem_free(r->proto);
+            for (size_t i = 0; i < r->subtype_count; i++) {
+                mdns_mem_free((char *)r->subtypes[i].subtype);
+            }
+            mdns_mem_free(r->subtypes);
             mdns_mem_free(r);
             return NULL;
         }
